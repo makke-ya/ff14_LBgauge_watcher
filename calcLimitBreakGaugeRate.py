@@ -9,6 +9,10 @@ import pyaudio
 import datetime
 import signal
 from PIL import ImageGrab
+from PIL import Image
+import win32gui
+import win32ui
+import win32con
 
 wav_margin = 3.0
 #maxgauge_th = 0.9
@@ -16,6 +20,8 @@ init_gauge_th = 0.95
 gauge_th = 0.95
 rightgauge_th = 0.7
 loop_interval = 0.5
+imgrab_lt = (-1920, 0)
+imgrab_wh = (1920, 1080)
 
 class CalcLimitBreakGaugeRate():
     def __init__(self):
@@ -73,6 +79,18 @@ class CalcLimitBreakGaugeRate():
         data = self.wf.readframes(frame_count)
         return (data, pyaudio.paContinue)
     
+    def screenshot(self, x, y, w, h):
+        """ スクリーンショット撮ってそれを(Pillow.Imageで)返す """
+        window = win32gui.GetDesktopWindow()
+        window_dc = win32ui.CreateDCFromHandle(win32gui.GetWindowDC(window))
+        compatible_dc = window_dc.CreateCompatibleDC()
+        bmp = win32ui.CreateBitmap()
+        bmp.CreateCompatibleBitmap(window_dc, w, h)
+        compatible_dc.SelectObject(bmp)
+        compatible_dc.BitBlt((0, 0), (w, h), window_dc, (x, y), win32con.SRCCOPY)
+        img = Image.frombuffer('RGB', (w, h), bmp.GetBitmapBits(True), 'raw', 'BGRX', 0, 1)
+        return img
+
     def calcGaugeRate(self, im):
         gauge_rate = []
     
@@ -148,11 +166,13 @@ class CalcLimitBreakGaugeRate():
             maxval = 0
             while(self.end_flag == False):
                 # スクリーンショット読み込み(全体)
-                im = ImageGrab.grab()
+                #im = ImageGrab.grab()
+                im = self.screenshot(imgrab_lt[0], imgrab_lt[1],
+                                     imgrab_wh[0], imgrab_wh[1])
                 im = np.asarray(im)                    
                 im = cv2.cvtColor(im,cv2.COLOR_BGR2RGB)
-                #cv2.imwrite("im.tif", im)
-                #im = cv2.imread("im.tif")
+                cv2.imwrite("im.tif", im)
+                im = cv2.imread("im.tif")
 
                 res = cv2.matchTemplate(im, self.mark_lb, cv2.TM_CCORR_NORMED,
                         None, self.mask_lb)
@@ -165,8 +185,10 @@ class CalcLimitBreakGaugeRate():
                 time.sleep(5)
 
             # リミットブレイクゲージの画像を切り取り
-            lt = (maxloc[0] - 15, maxloc[1])
-            rb = (maxloc[0] + 500, maxloc[1] + 25)
+            lt = (imgrab_lt[0] + maxloc[0] - 15, imgrab_lt[1] + maxloc[1])
+            wh = (500, 25)
+            rb = wh
+            #rb = (maxloc[0] + 500, maxloc[1] + 25)
             #lt = (1274, 513)
             #rb = (1789, 538)
         else:
@@ -175,11 +197,16 @@ class CalcLimitBreakGaugeRate():
         print(lt, rb)
     
         while(self.end_flag == False):
-            lb_im = ImageGrab.grab((lt[0], lt[1], rb[0], rb[1]))
-            lb_im = np.asarray(lb_im)                    
-            lb_im = cv2.cvtColor(lb_im, cv2.COLOR_BGR2RGB)
-            #lb_im = im[lt[1]:rb[1], lt[0]:rb[0]]
-            cv2.imwrite("lb_im.tif", lb_im)
+            try:
+                #lb_im = ImageGrab.grab((lt[0], lt[1], rb[0], rb[1]))
+                lb_im = self.screenshot(lt[0], lt[1], wh[0], wh[1])
+                lb_im = np.asarray(lb_im)                    
+                lb_im = cv2.cvtColor(lb_im, cv2.COLOR_BGR2RGB)
+                #lb_im = im[lt[1]:rb[1], lt[0]:rb[0]]
+                cv2.imwrite("lb_im.tif", lb_im)
+            except:
+                print("screenshot failed")
+                continue
     
             self.gauge_rate = self.calcGaugeRate(lb_im)
             print("[gauge_rate [{}]]".format(len(self.gauge_rate)), end="")
