@@ -10,6 +10,7 @@ import datetime
 import signal
 from PIL import ImageGrab
 from PIL import Image
+import win32api
 import win32gui
 import win32ui
 import win32con
@@ -20,8 +21,13 @@ init_gauge_th = 0.95
 gauge_th = 0.95
 rightgauge_th = 0.7
 loop_interval = 0.5
-imgrab_lt = (-1920, 0)
-imgrab_wh = (1920, 1080)
+width = win32api.GetSystemMetrics(win32con.SM_CXVIRTUALSCREEN)
+height = win32api.GetSystemMetrics(win32con.SM_CYVIRTUALSCREEN)
+left = win32api.GetSystemMetrics(win32con.SM_XVIRTUALSCREEN)
+top = win32api.GetSystemMetrics(win32con.SM_YVIRTUALSCREEN)
+imgrab_lt = (left, top)
+imgrab_wh = (width, height)
+print(imgrab_lt, imgrab_wh)
 
 class CalcLimitBreakGaugeRate():
     def __init__(self):
@@ -82,15 +88,19 @@ class CalcLimitBreakGaugeRate():
     def screenshot(self, x, y, w, h):
         """ スクリーンショット撮ってそれを(Pillow.Imageで)返す """
         window = win32gui.GetDesktopWindow()
-        window_dc = win32ui.CreateDCFromHandle(win32gui.GetWindowDC(window))
+        window_dev = win32gui.GetWindowDC(window)
+        window_dc = win32ui.CreateDCFromHandle(window_dev)
         compatible_dc = window_dc.CreateCompatibleDC()
         bmp = win32ui.CreateBitmap()
         bmp.CreateCompatibleBitmap(window_dc, w, h)
         compatible_dc.SelectObject(bmp)
         compatible_dc.BitBlt((0, 0), (w, h), window_dc, (x, y), win32con.SRCCOPY)
         img = Image.frombuffer('RGB', (w, h), bmp.GetBitmapBits(True), 'raw', 'BGRX', 0, 1)
+        win32gui.DeleteDC(compatible_dc.GetHandleAttrib())
+        win32gui.DeleteObject(bmp.GetHandle())
+        win32gui.ReleaseDC(win32gui.GetDesktopWindow(), window_dev) 
         return img
-
+    
     def calcGaugeRate(self, im):
         gauge_rate = []
     
@@ -206,7 +216,8 @@ class CalcLimitBreakGaugeRate():
                 cv2.imwrite("lb_im.tif", lb_im)
             except:
                 print("screenshot failed")
-                continue
+                print(win32api.FormatMessage())
+                sys.exit()
     
             self.gauge_rate = self.calcGaugeRate(lb_im)
             print("[gauge_rate [{}]]".format(len(self.gauge_rate)), end="")
